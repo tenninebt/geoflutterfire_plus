@@ -4,13 +4,14 @@ version: 0.0.32
 homepage: https://github.com/KosukeSaigusa/geoflutterfire_plus
 
 environment:
-  sdk: '>=2.17.0 <4.0.0'
-  flutter: '>=2.10.0'
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.0.0"
 
 dependencies:
   cloud_firestore: ^5.4.4
   flutter:
     sdk: flutter
+  meta: ^1.15.0
   rxdart: ^0.28.0
 
 dev_dependencies:

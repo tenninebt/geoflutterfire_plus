@@ -1,13 +1,19 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-// import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:geoflutterfire_plus/geoflutterfire_plus.dart';
+import 'package:geoflutterfire_plus/src/geo_collection_reference.dart';
+import 'package:geoflutterfire_plus/src/geo_fire_bounds.dart';
+import 'package:geoflutterfire_plus/src/geo_fire_point.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 
 import 'geo_collection_reference_test.mocks.dart';
 
-@GenerateMocks([CollectionReference, DocumentReference])
+@GenerateMocks([
+  CollectionReference,
+  DocumentReference,
+  QuerySnapshot,
+  Query,
+])
 void main() {
   group('Test GeoCollectionReference writing methods.', () {
     late final MockCollectionReference<Object> mockCollectionReference;
@@ -145,4 +151,67 @@ void main() {
   //     );
   //   });
   // });
+
+  group('Test bounds query methods', () {
+    test('fetchWithinBounds returns correct documents', () async {
+      final mockCollectionReference =
+          MockCollectionReference<Map<String, dynamic>>();
+      final geoCollectionReference =
+          GeoCollectionReference(mockCollectionReference);
+
+      final mockQuerySnapshot = MockQuerySnapshot<Map<String, dynamic>>();
+      final mockQuery = MockQuery<Map<String, dynamic>>();
+      final mockDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+      when(mockCollectionReference.orderBy(any)).thenReturn(mockQuery);
+      when(mockQuery.startAt(any)).thenReturn(mockQuery);
+      when(mockQuery.endAt(any)).thenReturn(mockQuery);
+      when(mockQuery.get(any))
+          .thenAnswer((final _) => Future.value(mockQuerySnapshot));
+      when(mockQuerySnapshot.docs).thenReturn(mockDocs);
+
+      final docs = await geoCollectionReference.fetchWithinBounds(
+        bounds: const GeoFireBounds(
+          southwest: GeoFirePoint(GeoPoint(35, 139)),
+          northeast: GeoFirePoint(GeoPoint(36, 140)),
+        ),
+        field: 'geo',
+        geopointFrom: (final data) =>
+            (data['geo'] as Map<String, dynamic>)['geopoint'] as GeoPoint,
+      );
+
+      expect(docs, isA<List<DocumentSnapshot>>());
+      verify(mockQuery.get(any)).called(greaterThan(0));
+    });
+
+    test('subscribeWithinBounds emits correct documents', () {
+      final mockCollectionReference =
+          MockCollectionReference<Map<String, dynamic>>();
+      final geoCollectionReference =
+          GeoCollectionReference(mockCollectionReference);
+
+      final mockQuerySnapshot = MockQuerySnapshot<Map<String, dynamic>>();
+      final mockQuery = MockQuery<Map<String, dynamic>>();
+      final mockDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+      when(mockCollectionReference.orderBy(any)).thenReturn(mockQuery);
+      when(mockQuery.startAt(any)).thenReturn(mockQuery);
+      when(mockQuery.endAt(any)).thenReturn(mockQuery);
+      when(mockQuery.snapshots())
+          .thenAnswer((final _) => Stream.value(mockQuerySnapshot));
+      when(mockQuerySnapshot.docs).thenReturn(mockDocs);
+
+      final stream = geoCollectionReference.subscribeWithinBounds(
+        bounds: const GeoFireBounds(
+          southwest: GeoFirePoint(GeoPoint(35, 139)),
+          northeast: GeoFirePoint(GeoPoint(36, 140)),
+        ),
+        field: 'geo',
+        geopointFrom: (final data) =>
+            (data['geo'] as Map<String, dynamic>)['geopoint'] as GeoPoint,
+      );
+
+      expect(stream, emits(isA<List<DocumentSnapshot>>()));
+    });
+  });
 }
