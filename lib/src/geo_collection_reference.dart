@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:rxdart/rxdart.dart';
 
+import 'geo_fire_bounds.dart';
 import 'geo_fire_point.dart';
 import 'math.dart';
 import 'utils.dart' as utils;
@@ -403,11 +404,118 @@ class GeoCollectionReference<T> {
     final fetchedData = queryDocumentSnapshot.data();
     final fetchedGeopoint = geopointFrom(fetchedData);
     final distanceFromCenterInKm =
-        center.distanceBetweenInKm(geopoint: fetchedGeopoint);
+        center.distanceToInKm(geopoint: GeoFirePoint(fetchedGeopoint));
     return GeoDocumentSnapshot(
       documentSnapshot: queryDocumentSnapshot,
       distanceFromCenterInKm: distanceFromCenterInKm,
     );
+  }
+
+  /// Fetches documents within the given bounds
+  Future<List<DocumentSnapshot<T>>> fetchWithinBounds({
+    required final GeoFireBounds bounds,
+    required final String field,
+    required final GeoPoint Function(T obj) geopointFrom,
+    final Query<T>? Function(Query<T> query)? queryBuilder,
+    final bool strictMode = false,
+    final bool isCacheFirst = false,
+  }) async {
+    final collectionFutures = _boundsFutures(
+      bounds: bounds,
+      field: field,
+      queryBuilder: queryBuilder,
+      isCacheFirst: isCacheFirst,
+    );
+
+    final mergedCollections = await _mergeCollectionFutures(collectionFutures);
+
+    return mergedCollections.where((final doc) {
+      final geopoint = geopointFrom(doc.data()!);
+      return !strictMode ||
+          (geopoint.latitude <= bounds.northeast.latitude &&
+              geopoint.latitude >= bounds.southwest.latitude &&
+              geopoint.longitude <= bounds.northeast.longitude &&
+              geopoint.longitude >= bounds.southwest.longitude);
+    }).toList();
+  }
+
+  /// Subscribes to documents within the given bounds
+  Stream<List<DocumentSnapshot<T>>> subscribeWithinBounds({
+    required final GeoFireBounds bounds,
+    required final String field,
+    required final GeoPoint Function(T obj) geopointFrom,
+    final Query<T>? Function(Query<T> query)? queryBuilder,
+    final bool strictMode = false,
+  }) {
+    final collectionStreams = _boundsStreams(
+      bounds: bounds,
+      field: field,
+      queryBuilder: queryBuilder,
+    );
+
+    return _mergeCollectionStreams(collectionStreams).map(
+      (final docs) => docs.where((final doc) {
+        final geopoint = geopointFrom(doc.data()!);
+        return !strictMode ||
+            (geopoint.latitude <= bounds.northeast.latitude &&
+                geopoint.latitude >= bounds.southwest.latitude &&
+                geopoint.longitude <= bounds.northeast.longitude &&
+                geopoint.longitude >= bounds.southwest.longitude);
+      }).toList(),
+    );
+  }
+
+  /// Returns stream of [QueryDocumentSnapshot]s within bounds
+  List<Stream<List<QueryDocumentSnapshot<T>>>> _boundsStreams({
+    required final GeoFireBounds bounds,
+    required final String field,
+    final Query<T>? Function(Query<T> query)? queryBuilder,
+  }) {
+    final geoBounds = bounds.toGeoBounds();
+    final precision = geohashPrecisionForBounds(bounds: geoBounds);
+
+    return geohashesForBounds(
+      bounds: geoBounds,
+      precision: precision,
+    )
+        .map(
+          (final geohash) => geoQuery(
+            field: field,
+            geohash: geohash,
+            queryBuilder: queryBuilder,
+          ).snapshots().map((final snapshot) => snapshot.docs),
+        )
+        .toList();
+  }
+
+  /// Returns future of [QueryDocumentSnapshot]s within bounds
+  List<Future<List<QueryDocumentSnapshot<T>>>> _boundsFutures({
+    required final GeoFireBounds bounds,
+    required final String field,
+    final Query<T>? Function(Query<T> query)? queryBuilder,
+    final bool isCacheFirst = false,
+  }) {
+    final geoBounds = bounds.toGeoBounds();
+    final precision = geohashPrecisionForBounds(bounds: geoBounds);
+
+    return geohashesForBounds(
+      bounds: geoBounds,
+      precision: precision,
+    )
+        .map(
+          (final geohash) => geoQuery(
+            field: field,
+            geohash: geohash,
+            queryBuilder: queryBuilder,
+          )
+              .get(
+                GetOptions(
+                  source: isCacheFirst ? Source.cache : Source.serverAndCache,
+                ),
+              )
+              .then((final snapshot) => snapshot.docs),
+        )
+        .toList();
   }
 }
 

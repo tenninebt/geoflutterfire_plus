@@ -1,6 +1,7 @@
 import 'dart:math';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'geo_bounds.dart';
+import 'geo_point.dart';
 
 /// 32 codes to use aas Base32.
 const _base32Codes = '0123456789bcdefghjkmnpqrstuvwxyz';
@@ -93,13 +94,18 @@ String encode({
 /// Decodes a [geohash] string into [_CoordinatesWithErrors].
 /// It includes 'latitude', 'longitude', 'latitudeError', 'longitudeError'.
 _CoordinatesWithErrors _decode(final String geohash) {
-  final boundingBox = _decodedBoundingBox(geohash);
-  final latitude =
-      _getMiddleOf(boundingBox.minLatitude, boundingBox.maxLatitude);
-  final longitude =
-      _getMiddleOf(boundingBox.minLongitude, boundingBox.maxLongitude);
-  final latitudeError = boundingBox.maxLatitude - latitude;
-  final longitudeError = boundingBox.maxLongitude - longitude;
+  final bounds = _decodedBounds(geohash);
+  final latitude = _getMiddleOf(
+    bounds.southwest.latitude,
+    bounds.northeast.latitude,
+  );
+  final longitude = _getMiddleOf(
+    bounds.southwest.longitude,
+    bounds.northeast.longitude,
+  );
+  final latitudeError = bounds.northeast.latitude - latitude;
+  final longitudeError = bounds.northeast.longitude - longitude;
+
   return _CoordinatesWithErrors(
     latitude: latitude,
     longitude: longitude,
@@ -108,13 +114,14 @@ _CoordinatesWithErrors _decode(final String geohash) {
   );
 }
 
-/// Decodes a hashString into a bounding box that matches it.
-_DecodedBoundingBox _decodedBoundingBox(final String geohash) {
+/// Decodes a hashString into bounds that match it.
+GeoBounds _decodedBounds(final String geohash) {
   var isLongitude = true;
   var maxLatitude = 90.0;
   var minLatitude = -90.0;
   var maxLongitude = 180.0;
   var minLongitude = -180.0;
+
   for (var i = 0; i < geohash.length; i++) {
     final code = geohash[i].toLowerCase();
     final hashValue = _base32CodesMap[code];
@@ -138,11 +145,10 @@ _DecodedBoundingBox _decodedBoundingBox(final String geohash) {
       isLongitude = !isLongitude;
     }
   }
-  return _DecodedBoundingBox(
-    minLatitude: minLatitude,
-    minLongitude: minLongitude,
-    maxLatitude: maxLatitude,
-    maxLongitude: maxLongitude,
+
+  return GeoBounds(
+    southwest: GeoPoint(minLatitude, minLongitude),
+    northeast: GeoPoint(maxLatitude, maxLongitude),
   );
 }
 
@@ -255,20 +261,6 @@ double _toRadians(final double num) => num * (pi / 180.0);
 
 double _getMiddleOf(final double x1, final double x2) => (x1 + x2) / 2;
 
-class _DecodedBoundingBox {
-  const _DecodedBoundingBox({
-    required this.minLatitude,
-    required this.minLongitude,
-    required this.maxLatitude,
-    required this.maxLongitude,
-  });
-
-  final double minLatitude;
-  final double minLongitude;
-  final double maxLatitude;
-  final double maxLongitude;
-}
-
 /// Coordinates ([latitude], [longitude])
 /// with each errors ([latitudeError], [longitudeError]).
 class _CoordinatesWithErrors {
@@ -283,4 +275,69 @@ class _CoordinatesWithErrors {
   final double longitude;
   final double latitudeError;
   final double longitudeError;
+}
+
+/// Returns geohashes that cover the given bounds
+List<String> geohashesForBounds({
+  required final GeoBounds bounds,
+  final int precision = 7,
+}) {
+  final geohashes = <String>{};
+
+  // Calculate lat/lon steps based on precision
+  final latStep = (bounds.northeast.latitude - bounds.southwest.latitude) / 4;
+  final lonStep = (bounds.northeast.longitude - bounds.southwest.longitude) / 4;
+
+  // Scan the area and collect geohashes
+  for (var lat = bounds.southwest.latitude;
+      lat <= bounds.northeast.latitude;
+      lat += latStep) {
+    for (var lon = bounds.southwest.longitude;
+        lon <= bounds.northeast.longitude;
+        lon += lonStep) {
+      final hash = encode(
+        latitude: lat,
+        longitude: lon,
+        geohashLength: precision,
+      );
+      geohashes.add(hash);
+    }
+  }
+
+  return geohashes.toList();
+}
+
+/// Returns optimal geohash precision for given bounds
+int geohashPrecisionForBounds({
+  required final GeoBounds bounds,
+}) {
+  final latDelta =
+      (bounds.northeast.latitude - bounds.southwest.latitude).abs();
+  final lonDelta =
+      (bounds.northeast.longitude - bounds.southwest.longitude).abs();
+  final maxDelta = latDelta > lonDelta ? latDelta : lonDelta;
+
+  print(
+    'latDelta: $latDelta, lonDelta: $lonDelta, maxDelta: $maxDelta',
+  ); // Debug
+
+  if (maxDelta <= 0.00477) {
+    return 9;
+  } else if (maxDelta <= 0.0382) {
+    return 8;
+  } else if (maxDelta <= 0.153) {
+    return 7;
+  } else if (maxDelta <= 1.22) {
+    return 6;
+  } else if (maxDelta <= 4.89) {
+    return 5;
+  } else if (maxDelta <= 39.1) {
+    return 4;
+  } else if (maxDelta <= 156) {
+    return 3;
+  } else if (maxDelta <= 1250) {
+    return 2;
+  } else {
+    return 1;
+  }
 }

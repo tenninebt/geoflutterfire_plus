@@ -1,5 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
+import 'package:meta/meta.dart';
 
+import 'geo_point.dart';
 import 'math.dart';
 import 'utils.dart' as utils;
 
@@ -8,8 +10,8 @@ class GeoFirePoint {
   /// Instantiates [GeoFirePoint].
   const GeoFirePoint(this.geopoint);
 
-  /// [GeoPoint] of the location.
-  final GeoPoint geopoint;
+  /// [firestore.GeoPoint] of the location.
+  final firestore.GeoPoint geopoint;
 
   /// Returns latitude of the location.
   double get latitude => geopoint.latitude;
@@ -26,8 +28,14 @@ class GeoFirePoint {
 
   /// Returns distance in kilometers between [GeoFirePoint] and given
   /// [geopoint].
-  double distanceBetweenInKm({required final GeoPoint geopoint}) =>
-      distanceInKm(geopoint1: this.geopoint, geopoint2: geopoint);
+  double distanceToInKm({required final GeoFirePoint geopoint}) =>
+      distanceInKm(geopoint1: toGeoPoint(), geopoint2: geopoint.toGeoPoint());
+
+  /// Internal method to convert to [GeoPoint].
+  @internal
+  GeoPoint toGeoPoint() {
+    return GeoPoint(geopoint.latitude, geopoint.longitude);
+  }
 
   /// Returns [geopoint] and [geohash] as Map<String, dynamic>. Can be used when
   /// adding or updating to Firestore document.
